@@ -1,100 +1,71 @@
+/*
+  Blink
 
-const int TIMEOUT_POTENTIOMETER   = A0;    // select the input pin for the potentiometer
-const int PRESSURE_SENSOR = A1;
+  Turns an LED on for one second, then off for one second, repeatedly.
+
+  Most Arduinos have an on-board LED you can control. On the UNO, MEGA and ZERO
+  it is attached to digital pin 13, on MKR1000 on pin 6. LED_BUILTIN is set to
+  the correct LED pin independent of which board is used.
+  If you want to know what pin the on-board LED is connected to on your Arduino
+  model, check the Technical Specs of your board at:
+  https://www.arduino.cc/en/Main/Products
+
+  modified 8 May 2014
+  by Scott Fitzgerald
+  modified 2 Sep 2016
+  by Arturo Guadalupi
+  modified 8 Sep 2016
+  by Colby Newman
+
+  This example code is in the public domain.
+
+  http://www.arduino.cc/en/Tutorial/Blink
+*/
+
+const int POTENTIOMETER = A0;    // select the input pin for the potentiometer
+//int sensorValue = 0;  // variable to store the value coming from the sensor
+//int digitalVal[2] = {0};
 const int ERR_LED = 2;
 const int POMP = 3;
-const int PRESSURE_POTENTIOMETER = A4;
 const int WATER_IN = 5;
 const int WATER_OUT = 7;
+//int errorLed = 0;
 
 unsigned long lastMeasuredTime = 0;
 
+//class Log
+//{
+//  public:
+//  enum LEVEL
+//  {
+//    TRACE,
+//    DEBUG,
+//    INFO,
+//    ERROR
+//  }
+//  
+//  Log(LEVEL level)
+//  {
+//    
+//  }
+//  
+//  void operator()(const char* fun, const char* info)
+//  {
+//    Serial.print(fun);
+//    Serial.println(info);
+//  }
+//};
+
 
 /////////////////////////////////////////////////////////////////////////// DEBOUNCER //////////////////////////////////////////////////////////////////////////////////////
-/// \brief The Debouncer class
-class IDebouncer
-{
-    public:
-    virtual bool getState(int &state) = 0;
-    virtual void update(unsigned long delta) = 0;
-};
-
-class IPotentiometerDataListener
-{
-  public:
-  virtual void onValueChanged(int value, int port) = 0;
-};
-
-/////////////////////////////////////////////////////////////////////////// POTENTIOMETER DATA READER //////////////////////////////////////////////////////////////////////////////////////
-class PotentiometerDataReader
-{
-  public:
-  void setListener(IPotentiometerDataListener *listener)
-  {
-    m_listener = listener;
-  }
-
-  void init(int pin)
-  {
-    m_pin = pin;
-    int value = readValue();
-    onValueChanged(value);
-  }
-
-  void update()
-  {
-    int value = readValue();
-
-//    Serial.print(__PRETTY_FUNCTION__);
-//    Serial.print(" value:");
-//    Serial.println(value);
-
-
-    if(valueNotChanged(value)){
-      return;
-    } else {
-      onValueChanged(value);
-    }
-  }
-
-  void onValueChanged(int value)
-  {
-    m_lastValue = value;
-
-    if(m_listener){
-      m_listener->onValueChanged(value, m_pin);
-    }
-  }
-
-  bool valueNotChanged(int value)
-  {
-    if(value > m_lastValue){
-      return value - m_lastValue <= TRESHOLD;
-    } else {
-      return m_lastValue- value <= TRESHOLD;
-    }
-  }
-
-  int readValue()
-  {
-    return analogRead(m_pin);
-  }
-  IPotentiometerDataListener *m_listener = nullptr;
-
-  int m_lastValue = 0;
-  const int TRESHOLD = 50;
-  int m_pin = 0;
-};
-
-
-class DigitalDebouncer: public IDebouncer
+class Debouncer
 {
 public:
-  DigitalDebouncer(int port, unsigned long stableTime): m_port(port),
+  Debouncer(int port, unsigned long stableTime): m_port(port),
                                    m_stableTime(stableTime)
                                    {}
 
-  bool getState(int &state) override
+  bool getState(int &state)
   {
     if(m_stable){
       state = m_lastState;
@@ -103,7 +74,7 @@ public:
     return m_stable;
   }
 
-  void update(unsigned long delta) override
+  void update(unsigned long delta)
   {
       int state = digitalRead(m_port);
 
@@ -129,77 +100,6 @@ public:
   unsigned long m_currentTime = 0;
 };
 
-
-class AnalogDebouncer: public IDebouncer
-{
-public:
-  AnalogDebouncer(int port, unsigned long stableTime, int minOffset): m_port(port),
-                                   m_stableTime(stableTime), m_minOffset(minOffset)
-                                   {
-  }
-
-  bool getState(int &state) override
-  {
-    if(m_stable){
-      state = m_lastState;
-    }
-
-    return m_stable;
-  }
-
-  void update(unsigned long delta) override
-  {
-      int value = readSensorValue();
-      int state = getSensorState(value);
-
-      if(state == m_lastState){
-        m_currentTime += delta;
-      } else {
-        m_currentTime = 0;
-        m_stable = false;
-      }
-
-      if(m_currentTime >= m_stableTime){
-        m_currentTime = m_stableTime;
-        m_stable = true;
-      }
-
-      m_lastState = state;
-  }
-
-  int readSensorValue()
-  {
-      return analogRead(m_port) - m_minOffset;
-  }
-
-  int getSensorState(int value)
-  {
-    if(value > m_stateChangeTreshold){
-      return true;
-    } else if (value < m_stateChangeTreshold - TRESHOLD){
-      return false;
-    } else {
-      return m_lastState;
-    }
-  }
-
-  void setStateChangeTreshold(int treshold)
-  {
-    m_stateChangeTreshold = treshold;
-  }
-
-  bool m_stable = false;
-  int m_port;
-  int m_lastState = -1;
-  unsigned long m_stableTime;
-  unsigned long m_currentTime = 0;
-  int m_minOffset;
-  int m_stateChangeTreshold = -1;
-  const int TRESHOLD = 50;
-};
-
-
-
 class IAlarmListener
 {
   public:
@@ -212,20 +112,27 @@ class IStateListener
   virtual void onChangeState(int oldState, int newState) = 0;
 };
 
+class ITimeoutValueListener
+{
+  public:
+  virtual void onValueChanged(int value) = 0;
+};
+
 
 /////////////////////////////////////////////////////////////////////////// SENSOR //////////////////////////////////////////////////////////////////////////////////////
 class Sensor
 {
   public:
-  Sensor(IDebouncer &debouncer, IStateListener *stateListener):
-                                               m_debouncer(debouncer),
+  Sensor(int port, unsigned long stableTime, IStateListener *stateListener):
+                                               m_port(port),
+                                               m_debouncer(port, stableTime),
                                                m_stateListener(stateListener)
                                                {}
   void update(unsigned long delta)
   {
     int state = 0;
     m_debouncer.update(delta);
-
+    
     if(!m_debouncer.getState(state)){
       Serial.print(__FUNCTION__);
       Serial.print(" debouncer not stable, object:");
@@ -258,8 +165,10 @@ class Sensor
   }
 
   int m_lastState = -1;
-  IDebouncer& m_debouncer;
+  Debouncer m_debouncer;
   IStateListener *m_stateListener = nullptr;
+
+  int m_port;
 };
 
 /////////////////////////////////////////////////////////////////////////// ALARM //////////////////////////////////////////////////////////////////////////////////////
@@ -373,14 +282,10 @@ class IWaterInListener
   virtual void onWaterIn(bool state) = 0;
 };
 
-///////////////////////////////////////
 class WaterInput : public IStateListener
 {
-  static constexpr int STABLE_TIME = 100;
-
   public:
-  WaterInput(IWaterInListener &listener):m_debouncer(WATER_IN, STABLE_TIME),
-                            m_sensor(m_debouncer, this),
+  WaterInput(IWaterInListener &listener):m_sensor(WATER_IN, 100, this),
                             m_listener(listener)
   {}
 
@@ -399,7 +304,6 @@ class WaterInput : public IStateListener
     return m_sensor.getState();
   }
 
-  DigitalDebouncer m_debouncer;
   Sensor m_sensor;
   IWaterInListener& m_listener;
 };
@@ -411,18 +315,13 @@ class IWaterOutListener
   virtual void onWaterOut(bool state) = 0;
 };
 
-///////////////////////////////////////
 class WaterOutput : public IStateListener
 {
-  static constexpr int STABLE_TIME = 500;
-  static constexpr int MIN_VALUE = 90;
-
   public:
-  WaterOutput(IWaterOutListener& listener):m_debouncer(PRESSURE_SENSOR, STABLE_TIME, MIN_VALUE),
-                            m_sensor(m_debouncer, this),
+  WaterOutput(IWaterOutListener& listener):m_sensor(WATER_OUT, 100, this),
                             m_listener(listener)
                             {}
-
+  
   void update(unsigned long delta)
   {
     m_sensor.update(delta);
@@ -438,56 +337,41 @@ class WaterOutput : public IStateListener
     return m_sensor.getState();
   }
 
-  void setMaxPressureValue(int value)
-  {
-    m_debouncer.setStateChangeTreshold(value);
-  }
-
-  AnalogDebouncer m_debouncer;
   Sensor m_sensor;
   IWaterOutListener& m_listener;
 };
 
 
 /////////////////////////////////////////////////////////////////////////// POMP DRIVER //////////////////////////////////////////////////////////////////////////////////////
-class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOutListener, IAlarmListener
+class PompDriver: public ITimeoutValueListener, IWaterInListener, IWaterOutListener, IAlarmListener
 {
   constexpr static int NO_WATER = 0;
   constexpr static int WATER_OFF = 1;
-
+  
   constexpr static int NO_WATER_TIMEOUT = 10000;
   constexpr static int DEFAULT_WATER_OFF_TIMEOUT = 10000;
-
+  
   public:
   PompDriver(): m_waterInput(*this),
                 m_waterOutput(*this)
-  {}
+                
+  {
+    
+  };
 
   void update(unsigned long delta)
   {
     if(m_motor.waterErrorOccured()){
       return;
     }
-
+    
     m_waterOutput.update(delta);
     m_waterInput.update(delta);
 
     m_waterAlarm.update(delta, m_waterInput.getState());
   }
 
-  void onValueChanged(int value, int port) override
-  {
-    switch(port){
-    case TIMEOUT_POTENTIOMETER:
-        setTimeoutValue(value);
-        break;
-    case PRESSURE_POTENTIOMETER:
-        setMaxPressureValue(value);
-        break;
-    }
-  }
-
-  void setTimeoutValue(int value)
+  void onValueChanged(int value) override
   {
     m_waterOffTimeout = value * 10;
 
@@ -496,26 +380,15 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
     Serial.println(m_waterOffTimeout);
   }
 
-  void setMaxPressureValue(int value)
-  {
-    Serial.print(__FUNCTION__);
-    Serial.print(" value:");
-    Serial.println(m_waterOffTimeout);
-
-    m_waterOutput.setMaxPressureValue(value);
-  }
-
   void onWaterOut(bool state) override
   {
     Serial.print(__FUNCTION__);
     Serial.print(" state:");
     Serial.println(state);
-
+    
     if(0 == state){
       m_motor.turnOn();
       m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER);
-    } else {
-        m_motor.turnOff();
     }
   }
 
@@ -524,7 +397,7 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
     Serial.print(__FUNCTION__);
     Serial.print(" state:");
     Serial.println(state);
-
+    
     if(1 == state){
       if(1 == m_waterOutput.getState()){
         m_waterAlarm.setAlarm(this, m_waterOffTimeout, WATER_OFF, true);
@@ -537,7 +410,7 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
     Serial.print(__FUNCTION__);
     Serial.print(" id:");
     Serial.println(id);
-
+    
     switch(id){
       case WATER_OFF:
         m_motor.turnOff();
@@ -549,7 +422,7 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
       ;//ERROR
     }
   }
-
+  
   Motor m_motor;
   WaterInput m_waterInput;
   WaterOutput m_waterOutput;
@@ -558,6 +431,64 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
 };
 
 
+/////////////////////////////////////////////////////////////////////////// TIMEOUT READER //////////////////////////////////////////////////////////////////////////////////////
+class TimeoutReader
+{
+  public:
+  void setListener(ITimeoutValueListener *listener)
+  {
+    m_listener = listener;
+  }
+
+  void init()
+  {
+    int value = readValue();
+    onValueChanged(value);
+  }
+  
+  void update()
+  {
+    int value = readValue();
+
+//    Serial.print(__PRETTY_FUNCTION__);
+//    Serial.print(" value:");
+//    Serial.println(value);
+
+
+    if(valueNotChanged(value)){
+      return;
+    } else {
+      onValueChanged(value); 
+    }
+  }
+
+  void onValueChanged(int value)
+  {
+    m_lastValue = value;
+
+    if(m_listener){
+      m_listener->onValueChanged(value);
+    }
+  }
+
+  bool valueNotChanged(int value)
+  {
+    if(value > m_lastValue){
+      return value - m_lastValue <= TRESHOLD;
+    } else {
+      return m_lastValue- value <= TRESHOLD;
+    }
+  }
+
+  int readValue()
+  {
+    return analogRead(POTENTIOMETER);
+  }
+  ITimeoutValueListener *m_listener = nullptr;
+  
+  int m_lastValue = 0;
+  const int TRESHOLD = 50;
+};
 
 /////////////////////////////////////////////////////////////////////////// TIMER //////////////////////////////////////////////////////////////////////////////////////
 class Timer
@@ -587,56 +518,66 @@ class Timer
   }
 };
 
-/////////////////////////////////////////////////////////////////////////// GLOBALS //////////////////////////////////////////////////////////////////////////////////////
 PompDriver g_pompDriver;
-PotentiometerDataReader g_timeoutValueReader;
-PotentiometerDataReader g_maxPressureValueReader;
+TimeoutReader g_timeoutReader;
 Timer g_timer;
 
 
 /////////////////////////////////////////////////////////////////////////// SETUP //////////////////////////////////////////////////////////////////////////////////////
 // the setup function runs once when you press reset or power the board
+void setup() {
+  // initialize digital pin LED_BUILTIN as an output.
+  //pinMode(LED_BUILTIN, OUTPUT);
+  //pinMode(POTENTIOMETER, INPUT);
+  
+  pinMode(WATER_IN, INPUT);
+  pinMode(WATER_OUT, INPUT);
+  pinMode(ERR_LED, OUTPUT);
+  pinMode(POMP, OUTPUT);
 
-void hardwareSetup()
-{
-    Serial.begin(115200);
+  digitalWrite(ERR_LED, HIGH);
+  digitalWrite(POMP, LOW);
+  
+  Serial.begin(115200);
+  //Serial.print("qwqwqw");
 
-    pinMode(WATER_IN, INPUT);
-    //pinMode(WATER_OUT, INPUT);
-    pinMode(ERR_LED, OUTPUT);
-    pinMode(POMP, OUTPUT);
-
-    digitalWrite(ERR_LED, HIGH);
-    digitalWrite(POMP, LOW);
+  g_timeoutReader.setListener(&g_pompDriver);
+  g_timeoutReader.init();
+  g_timer.init();
 }
 
-void softwareSetup()
-{
-    g_timeoutValueReader.setListener(&g_pompDriver);
-    g_timeoutValueReader.init(TIMEOUT_POTENTIOMETER);
+//int getOutputTimout()
+//{
+//  return analogRead(POTENTIOMETER) / 100;
+//}
 
-    g_maxPressureValueReader.init(PRESSURE_POTENTIOMETER);
-    g_maxPressureValueReader.setListener(&g_pompDriver);
-    g_timer.init();
-}
-
-void setup()
-{
-    hardwareSetup();
-    softwareSetup();
-}
+//unsigned long lapsedTime()
 
 
 /////////////////////////////////////////////////////////////////////////// LOOP //////////////////////////////////////////////////////////////////////////////////////
 // the loop function runs over and over again forever
 void loop() {
   g_timer.measureBegin();
-
-  g_timeoutValueReader.update();
-  g_maxPressureValueReader.update();
-
+  
+  g_timeoutReader.update();
   delay(100);
   g_pompDriver.update(g_timer.getLapsedTime());
-
+  
   g_timer.measureEnd();
+//  unsigned long lapsedTime = millis();
+//  //sensorValue = analogRead(sensorPin);
+//  digitalVal[0] = digitalRead(5);
+//  digitalVal[1] = digitalRead(7);
+//  Serial.println(digitalVal[0]);
+//  Serial.println(digitalVal[1]);
+//
+//  delay(1000);                       // wait for a second
+//  digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
+//  digitalWrite(ERR_LED, HIGH);
+//  digitalWrite(POMP, HIGH);
+//  
+//  delay(1000);                       // wait for a second
+//  digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW
+//  digitalWrite(ERR_LED, LOW);
+//  digitalWrite(POMP, LOW);
 }

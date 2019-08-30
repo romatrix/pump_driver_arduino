@@ -5,7 +5,7 @@ The idea behind the project it is to be able to change delay which stops pump mo
 Arduino nano based version uses potentiometer to set time (0 - 10 seconds). The remaining functionality is exactly the same as in original ucontroller.
 This version of the software is on a branch `original`
 
-Currently on the master there is another enhancement.
+Currently on the master branch there is another enhancement.
 Instead of spring based switch that starts pump motor when water pressure is dropped and check valve used for stopping then pump motor, a pressure sensor is used for detecting when hte water pressure drops (start pump motor) and when the water pressure is at a level that can be treated as turning water off (stop pump motor). To set max water pressure another potentiometer is used.
 All pin used with a bit of description you can find in *.ino file.
 

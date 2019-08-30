@@ -1,66 +1,13 @@
-/*
-  Blink
-
-  Turns an LED on for one second, then off for one second, repeatedly.
-
-  Most Arduinos have an on-board LED you can control. On the UNO, MEGA and ZERO
-  it is attached to digital pin 13, on MKR1000 on pin 6. LED_BUILTIN is set to
-  the correct LED pin independent of which board is used.
-  If you want to know what pin the on-board LED is connected to on your Arduino
-  model, check the Technical Specs of your board at:
-  https://www.arduino.cc/en/Main/Products
-
-  modified 8 May 2014
-  by Scott Fitzgerald
-  modified 2 Sep 2016
-  by Arturo Guadalupi
-  modified 8 Sep 2016
-  by Colby Newman
-
-  This example code is in the public domain.
-
-  http://www.arduino.cc/en/Tutorial/Blink
-*/
 
 const int TIMEOUT_POTENTIOMETER   = A0;    // select the input pin for the potentiometer
 const int PRESSURE_SENSOR = A1;
-//int sensorValue = 0;  // variable to store the value coming from the sensor
-//int digitalVal[2] = {0};
 const int ERR_LED = 2;
 const int POMP = 3;
 const int PRESSURE_POTENTIOMETER = A4;
 const int WATER_IN = 5;
 const int WATER_OUT = 7;
-//int errorLed = 0;
 
-//#include <ArduinoSTL.h>
-
-
-//std::vector<int> dupa;
 unsigned long lastMeasuredTime = 0;
-
-//class Log
-//{
-//  public:
-//  enum LEVEL
-//  {
-//    TRACE,
-//    DEBUG,
-//    INFO,
-//    ERROR
-//  }
-//
-//  Log(LEVEL level)
-//  {
-//
-//  }
-//
-//  void operator()(const char* fun, const char* info)
-//  {
-//    Serial.print(fun);
-//    Serial.println(info);
-//  }
-//};
 
 
 /////////////////////////////////////////////////////////////////////////// DEBOUNCER //////////////////////////////////////////////////////////////////////////////////////
@@ -202,8 +149,8 @@ public:
 
   void update(unsigned long delta) override
   {
-      int value = analogRead(m_port);
-      valueNotChanged();
+      int value = readSensorValue();
+      int state = getSensorState(value);
 
       if(state == m_lastState){
         m_currentTime += delta;
@@ -220,21 +167,19 @@ public:
       m_lastState = state;
   }
 
-    void onValueChanged(int value)
+  int readSensorValue()
   {
-    m_lastValue = value;
-
-//    if(m_listener){
-//      m_listener->onValueChanged(value, m_pin);
-//    }
+      return analogRead(m_port) - m_minOffset;
   }
 
-  bool valueNotChanged(int value)
+  int getSensorState(int value)
   {
-    if(value > m_lastValue){
-      return value - m_lastValue <= TRESHOLD;
+    if(value > m_stateChangeTreshold){
+      return true;
+    } else if (value < m_stateChangeTreshold - TRESHOLD){
+      return false;
     } else {
-      return m_lastValue- value <= TRESHOLD;
+      return m_lastState;
     }
   }
 
@@ -246,13 +191,11 @@ public:
   bool m_stable = false;
   int m_port;
   int m_lastState = -1;
-  int m_lastValue = -1;
   unsigned long m_stableTime;
   unsigned long m_currentTime = 0;
   int m_minOffset;
-  //int m_switchStateValue = -1;
   int m_stateChangeTreshold = -1;
-  const int TRESHOLD = 20;
+  const int TRESHOLD = 50;
 };
 
 
@@ -471,7 +414,7 @@ class IWaterOutListener
 ///////////////////////////////////////
 class WaterOutput : public IStateListener
 {
-  static constexpr int STABLE_TIME = 100;
+  static constexpr int STABLE_TIME = 500;
   static constexpr int MIN_VALUE = 90;
 
   public:
@@ -518,10 +461,7 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
   public:
   PompDriver(): m_waterInput(*this),
                 m_waterOutput(*this)
-
-  {
-
-  }
+  {}
 
   void update(unsigned long delta)
   {
@@ -574,6 +514,8 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
     if(0 == state){
       m_motor.turnOn();
       m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER);
+    } else {
+        m_motor.turnOff();
     }
   }
 
@@ -645,87 +587,54 @@ class Timer
   }
 };
 
+/////////////////////////////////////////////////////////////////////////// GLOBALS //////////////////////////////////////////////////////////////////////////////////////
 PompDriver g_pompDriver;
-PotentiometerDataReader g_timeoutReader;
-PotentiometerDataReader g_pressureReader;
+PotentiometerDataReader g_timeoutValueReader;
+PotentiometerDataReader g_maxPressureValueReader;
 Timer g_timer;
 
 
 /////////////////////////////////////////////////////////////////////////// SETUP //////////////////////////////////////////////////////////////////////////////////////
 // the setup function runs once when you press reset or power the board
+
+void hardwareSetup()
+{
+    Serial.begin(115200);
+
+    pinMode(WATER_IN, INPUT);
+    //pinMode(WATER_OUT, INPUT);
+    pinMode(ERR_LED, OUTPUT);
+    pinMode(POMP, OUTPUT);
+
+    digitalWrite(ERR_LED, HIGH);
+    digitalWrite(POMP, LOW);
+}
+
+void softwareSetup()
+{
+    g_timeoutValueReader.setListener(&g_pompDriver);
+    g_timeoutValueReader.init(TIMEOUT_POTENTIOMETER);
+    g_maxPressureValueReader.init(PRESSURE_POTENTIOMETER);
+    g_timer.init();
+}
+
 void setup()
 {
-  Serial.begin(115200);
-
-  pinMode(WATER_IN, INPUT);
-  pinMode(WATER_OUT, INPUT);
-  pinMode(ERR_LED, OUTPUT);
-  pinMode(POMP, OUTPUT);
-
-  digitalWrite(ERR_LED, HIGH);
-  digitalWrite(POMP, LOW);
-
-  Serial.begin(115200);
-
-  g_timeoutReader.setListener(&g_pompDriver);
-  g_timeoutReader.init(TIMEOUT_POTENTIOMETER);
-  g_timer.init();
-
-  g_pressureReader.init(PRESSURE_POTENTIOMETER);
+    hardwareSetup();
+    softwareSetup();
 }
 
-//int getOutputTimout()
-//{
-//  return analogRead(POTENTIOMETER) / 100;
-//}
 
-//unsigned long lapsedTime()
-
-
-void pressureSensor()
-{
-  int sensorValue = analogRead(PRESSURE_SENSOR);
-  Serial.println(sensorValue);
-}
-
-void pressurePotentiometer()
-{
-  int sensorValue = analogRead(PRESSURE_POTENTIOMETER);
-  Serial.println(sensorValue);
-}
 /////////////////////////////////////////////////////////////////////////// LOOP //////////////////////////////////////////////////////////////////////////////////////
 // the loop function runs over and over again forever
 void loop() {
-//  g_timer.measureBegin();
-//
-//  g_timeoutReader.update();
-//  delay(100);
-//  g_pompDriver.update(g_timer.getLapsedTime());
-//
-//  g_timer.measureEnd();
+  g_timer.measureBegin();
 
+  g_timeoutValueReader.update();
+  g_maxPressureValueReader.update();
 
+  delay(100);
+  g_pompDriver.update(g_timer.getLapsedTime());
 
-  pressureSensor();
-  pressurePotentiometer();
-  delay(500);
-
-
-
-//  unsigned long lapsedTime = millis();
-//  //sensorValue = analogRead(sensorPin);
-//  digitalVal[0] = digitalRead(5);
-//  digitalVal[1] = digitalRead(7);
-//  Serial.println(digitalVal[0]);
-//  Serial.println(digitalVal[1]);
-//
-//  delay(1000);                       // wait for a second
-//  digitalWrite(LED_BUILTIN, HIGH);   // turn the LED on (HIGH is the voltage level)
-//  digitalWrite(ERR_LED, HIGH);
-//  digitalWrite(POMP, HIGH);
-//
-//  delay(1000);                       // wait for a second
-//  digitalWrite(LED_BUILTIN, LOW);    // turn the LED off by making the voltage LOW
-//  digitalWrite(ERR_LED, LOW);
-//  digitalWrite(POMP, LOW);
+  g_timer.measureEnd();
 }

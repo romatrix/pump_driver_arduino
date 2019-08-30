@@ -614,7 +614,9 @@ void softwareSetup()
 {
     g_timeoutValueReader.setListener(&g_pompDriver);
     g_timeoutValueReader.init(TIMEOUT_POTENTIOMETER);
+
     g_maxPressureValueReader.init(PRESSURE_POTENTIOMETER);
+    g_maxPressureValueReader.setListener(&g_pompDriver);
     g_timer.init();
 }
 

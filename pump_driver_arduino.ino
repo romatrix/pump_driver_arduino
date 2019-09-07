@@ -1,9 +1,9 @@
 
 const int TIMEOUT_POTENTIOMETER   = A0;    // select the input pin for the potentiometer
-const int PRESSURE_SENSOR = A1;
+const int PRESSURE_POTENTIOMETER = A1;
 const int ERR_LED = 2;
 const int POMP = 3;
-const int PRESSURE_POTENTIOMETER = A4;
+const int PRESSURE_SENSOR = A4;
 const int WATER_IN = 5;
 const int WATER_OUT = 7;
 
@@ -82,7 +82,7 @@ class PotentiometerDataReader
   IPotentiometerDataListener *m_listener = nullptr;
 
   int m_lastValue = 0;
-  const int TRESHOLD = 50;
+  const int TRESHOLD = 10;
   int m_pin = 0;
 };
 
@@ -169,7 +169,13 @@ public:
 
   int readSensorValue()
   {
-      return analogRead(m_port) - m_minOffset;
+      int value = analogRead(m_port) - m_minOffset;
+      Serial.print(__FUNCTION__);
+      Serial.print(" value:");
+      Serial.print(value);
+      Serial.print(" raw value:");
+      Serial.println(value + m_minOffset);
+
   }
 
   int getSensorState(int value)
@@ -415,7 +421,7 @@ class IWaterOutListener
 class WaterOutput : public IStateListener
 {
   static constexpr int STABLE_TIME = 500;
-  static constexpr int MIN_VALUE = 90;
+  static constexpr int MIN_VALUE = 80;
 
   public:
   WaterOutput(IWaterOutListener& listener):m_debouncer(PRESSURE_SENSOR, STABLE_TIME, MIN_VALUE),
@@ -500,7 +506,7 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
   {
     Serial.print(__FUNCTION__);
     Serial.print(" value:");
-    Serial.println(m_waterOffTimeout);
+    Serial.println(value);
 
     m_waterOutput.setMaxPressureValue(value);
   }
@@ -512,6 +518,11 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
     Serial.println(state);
 
     if(0 == state){
+        if(m_motor.waterErrorOccured()){
+            Serial.print(__FUNCTION__);
+            Serial.println(" waterErrorOccured, cannot turn on motor");
+          return;
+        }
       m_motor.turnOn();
       m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER);
     } else {
@@ -612,8 +623,8 @@ void hardwareSetup()
 
 void softwareSetup()
 {
-    g_timeoutValueReader.setListener(&g_pompDriver);
     g_timeoutValueReader.init(TIMEOUT_POTENTIOMETER);
+    g_timeoutValueReader.setListener(&g_pompDriver);
 
     g_maxPressureValueReader.init(PRESSURE_POTENTIOMETER);
     g_maxPressureValueReader.setListener(&g_pompDriver);

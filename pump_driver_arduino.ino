@@ -185,7 +185,7 @@ public:
     } else if (value < m_stateChangeTreshold - TRESHOLD){
       return false;
     } else {
-      return m_lastState;
+      return m_lastState != -1 ? m_lastState : false;
     }
   }
 

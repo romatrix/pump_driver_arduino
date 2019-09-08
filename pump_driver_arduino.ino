@@ -8,6 +8,10 @@ const int WATER_IN = 5;
 const int WATER_OUT = 7;
 
 unsigned long lastMeasuredTime = 0;
+String SIM_ON = "SIM ON";
+String SIM_OFF = "SIM OFF";
+bool g_simulatedSensor = false;
+int g_simulatedSensorValue = 100;
 
 
 /////////////////////////////////////////////////////////////////////////// DEBOUNCER //////////////////////////////////////////////////////////////////////////////////////
@@ -169,22 +173,35 @@ public:
 
   int readSensorValue()
   {
-      int value = analogRead(m_port) - m_minOffset;
-      Serial.print(__FUNCTION__);
-      Serial.print(" value:");
-      Serial.print(value);
-      Serial.print(" raw value:");
-      Serial.println(value + m_minOffset);
+      int value= analogRead(m_port) - m_minOffset;
 
+      if(true == g_simulatedSensor){
+          value = g_simulatedSensorValue;
+      }
+//      Serial.print(__FUNCTION__);
+//      Serial.print(" value:");
+//      Serial.print(value);
+//      Serial.print(" raw value:");
+//      Serial.println(value + m_minOffset);
+      return value;
   }
 
   int getSensorState(int value)
   {
     if(value > m_stateChangeTreshold){
+//              Serial.print(__FUNCTION__);
+//              Serial.print(" value high:");
+//              Serial.println(value);
       return true;
     } else if (value < m_stateChangeTreshold - TRESHOLD){
+        Serial.print(__FUNCTION__);
+        Serial.print(" value low:");
+        Serial.println(value);
       return false;
     } else {
+//        Serial.print(__FUNCTION__);
+//        Serial.print(" value treshold:");
+//        Serial.println(value);
       return m_lastState != -1 ? m_lastState : false;
     }
   }
@@ -201,7 +218,7 @@ public:
   unsigned long m_currentTime = 0;
   int m_minOffset;
   int m_stateChangeTreshold = -1;
-  const int TRESHOLD = 50;
+  const int TRESHOLD = 200;
 };
 
 
@@ -233,9 +250,9 @@ class Sensor
     m_debouncer.update(delta);
 
     if(!m_debouncer.getState(state)){
-      Serial.print(__FUNCTION__);
-      Serial.print(" debouncer not stable, object:");
-      Serial.println((int)this, HEX);
+//      Serial.print(__FUNCTION__);
+//      Serial.print(" debouncer not stable, object:");
+//      Serial.println((int)this, HEX);
       return;
     }
 
@@ -420,7 +437,7 @@ class IWaterOutListener
 ///////////////////////////////////////
 class WaterOutput : public IStateListener
 {
-  static constexpr int STABLE_TIME = 500;
+  static constexpr int STABLE_TIME = 30;
   static constexpr int MIN_VALUE = 80;
 
   public:
@@ -524,7 +541,7 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
           return;
         }
       m_motor.turnOn();
-      m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER);
+      m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER, true);
     } else {
         m_motor.turnOff();
     }
@@ -539,7 +556,9 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
     if(1 == state){
       if(1 == m_waterOutput.getState()){
         m_waterAlarm.setAlarm(this, m_waterOffTimeout, WATER_OFF, true);
-      }
+        }
+    } else {
+        m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER, true);
     }
   }
 
@@ -554,7 +573,9 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
         m_motor.turnOff();
       break;
       case NO_WATER:
-        m_motor.onWaterError();
+        if(m_waterInput.getState() == 1){
+            m_motor.onWaterError();
+        }
       break;
       default:
       ;//ERROR
@@ -623,11 +644,11 @@ void hardwareSetup()
 
 void softwareSetup()
 {
-    g_timeoutValueReader.init(TIMEOUT_POTENTIOMETER);
     g_timeoutValueReader.setListener(&g_pompDriver);
+    g_timeoutValueReader.init(TIMEOUT_POTENTIOMETER);
 
-    g_maxPressureValueReader.init(PRESSURE_POTENTIOMETER);
     g_maxPressureValueReader.setListener(&g_pompDriver);
+    g_maxPressureValueReader.init(PRESSURE_POTENTIOMETER);
     g_timer.init();
 }
 
@@ -638,15 +659,49 @@ void setup()
 }
 
 
+void readCmd()
+{
+    String inString = "";
+    while(Serial.available() > 0) // Don't read unless
+     {
+        int data = Serial.read();
+//        Serial.println(data);
+
+        if(data != '\n'){
+            inString += (char)data;
+        }
+
+            if(inString == SIM_ON){
+                g_simulatedSensor = true;
+                inString = "";
+                Serial.println(SIM_ON);
+                continue;
+            } else if(inString == SIM_OFF){
+                g_simulatedSensor = false;
+                Serial.println(SIM_OFF);
+                inString = "";
+                continue;
+            }
+
+        if (data == '\n' && inString.length() > 0 && g_simulatedSensor) {
+            g_simulatedSensorValue = inString.toInt();
+            Serial.print("SIM ON, VALUE=");
+            Serial.println(inString.toInt());
+        }
+     }
+}
+
 /////////////////////////////////////////////////////////////////////////// LOOP //////////////////////////////////////////////////////////////////////////////////////
 // the loop function runs over and over again forever
 void loop() {
+  readCmd();
+
   g_timer.measureBegin();
 
   g_timeoutValueReader.update();
   g_maxPressureValueReader.update();
 
-  delay(100);
+  delay(5);
   g_pompDriver.update(g_timer.getLapsedTime());
 
   g_timer.measureEnd();

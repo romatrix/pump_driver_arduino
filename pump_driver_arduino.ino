@@ -86,7 +86,7 @@ class PotentiometerDataReader
   IPotentiometerDataListener *m_listener = nullptr;
 
   int m_lastValue = 0;
-  const int TRESHOLD = 10;
+  const int TRESHOLD = 5;
   int m_pin = 0;
 };
 
@@ -563,7 +563,7 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
       Serial.print(" value:");
       Serial.println(value);
 
-      m_waterOutput.setLowPressureValue(value);
+      m_waterOutput.setLowPressureValue(value / 2);
   }
 
   void setHighPressureValue(int value)
@@ -572,7 +572,7 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
     Serial.print(" value:");
     Serial.println(value);
 
-    m_waterOutput.setHighPressureValue(value);
+    m_waterOutput.setHighPressureValue(value / 2);
   }
 
   void onWaterOut(WaterPressureState state) override

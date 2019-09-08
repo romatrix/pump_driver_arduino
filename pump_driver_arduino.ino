@@ -1,6 +1,6 @@
 
-const int TIMEOUT_POTENTIOMETER   = A0;    // select the input pin for the potentiometer
-const int PRESSURE_POTENTIOMETER = A1;
+const int LOW_PRESSURE_POTENTIOMETER   = A0;    // select the input pin for the potentiometer
+const int HIGH_PRESSURE_POTENTIOMETER = A1;
 const int ERR_LED = 2;
 const int POMP = 3;
 const int PRESSURE_SENSOR = A4;
@@ -188,12 +188,12 @@ public:
 
   int getSensorState(int value)
   {
-    if(value > m_stateChangeTreshold){
+    if(value > m_highLevelTreshold){
 //              Serial.print(__FUNCTION__);
 //              Serial.print(" value high:");
 //              Serial.println(value);
       return true;
-    } else if (value < m_stateChangeTreshold - TRESHOLD){
+    } else if (value < m_lowLevelTreshold){
         Serial.print(__FUNCTION__);
         Serial.print(" value low:");
         Serial.println(value);
@@ -206,9 +206,14 @@ public:
     }
   }
 
-  void setStateChangeTreshold(int treshold)
+  void setHighLevelTreshold(int treshold)
   {
-    m_stateChangeTreshold = treshold;
+    m_highLevelTreshold = treshold;
+  }
+
+  void setLowLevelTreshold(int treshold)
+  {
+    m_lowLevelTreshold = treshold;
   }
 
   bool m_stable = false;
@@ -217,7 +222,8 @@ public:
   unsigned long m_stableTime;
   unsigned long m_currentTime = 0;
   int m_minOffset;
-  int m_stateChangeTreshold = -1;
+  int m_highLevelTreshold = -1;
+  int m_lowLevelTreshold = -1;
   const int TRESHOLD = 200;
 };
 
@@ -328,6 +334,11 @@ class Alarm
     m_alarmListener = nullptr;
   }
 
+  void clearAlarm()
+  {
+      onClearAlarm();
+  }
+
   void setAlarm(IAlarmListener* alarmListener, unsigned long timeout, int id, bool ignoreState = false)
   {
     Serial.print(__FUNCTION__);
@@ -392,8 +403,13 @@ class Motor
 /////////////////////////////////////////////////////////////////////////// WATER INPUT //////////////////////////////////////////////////////////////////////////////////////
 class IWaterInListener
 {
-  public:
-  virtual void onWaterIn(bool state) = 0;
+    public:
+    enum WaterFlowState{
+        eWaterFlow,
+        eWaterStop
+    };
+
+    virtual void onWaterIn(WaterFlowState state) = 0;
 };
 
 ///////////////////////////////////////
@@ -414,12 +430,22 @@ class WaterInput : public IStateListener
 
   void onChangeState(int oldState, int newState) override
   {
-    m_listener.onWaterIn(newState);
+      switch(newState){
+        case 0:
+            return m_listener.onWaterIn(IWaterInListener::eWaterFlow);
+        case 1:
+            return m_listener.onWaterIn(IWaterInListener::eWaterStop);
+      }
   }
 
-  int getState()
+  IWaterInListener::WaterFlowState getState()
   {
-    return m_sensor.getState();
+      switch(m_sensor.getState()){
+        case 0:
+            return IWaterInListener::eWaterFlow;
+        case 1:
+            return IWaterInListener::eWaterStop;
+      }
   }
 
   DigitalDebouncer m_debouncer;
@@ -430,8 +456,13 @@ class WaterInput : public IStateListener
 /////////////////////////////////////////////////////////////////////////// WATER OUTPUT //////////////////////////////////////////////////////////////////////////////////////
 class IWaterOutListener
 {
-  public:
-  virtual void onWaterOut(bool state) = 0;
+public:
+    enum WaterPressureState{
+        eLowWaterPressure,
+        eHighWaterPressure
+    };
+
+  virtual void onWaterOut(WaterPressureState state) = 0;
 };
 
 ///////////////////////////////////////
@@ -453,17 +484,35 @@ class WaterOutput : public IStateListener
 
   void onChangeState(int oldState, int newState) override
   {
-      m_listener.onWaterOut(newState);
+      switch(newState){
+      case 0:
+          m_listener.onWaterOut(IWaterOutListener::eLowWaterPressure);
+          break;
+      case 1:
+          m_listener.onWaterOut(IWaterOutListener::eHighWaterPressure);
+          break;
+      }
+
   }
 
-  int getState()
+  IWaterOutListener::WaterPressureState getState()
   {
-    return m_sensor.getState();
+      switch(m_sensor.getState()){
+      case 0:
+          return IWaterOutListener::eLowWaterPressure;
+      case 1:
+          return IWaterOutListener::eHighWaterPressure;
+      }
   }
 
-  void setMaxPressureValue(int value)
+  void setHighPressureValue(int value)
   {
-    m_debouncer.setStateChangeTreshold(value);
+    m_debouncer.setHighLevelTreshold(value);
+  }
+
+  void setLowPressureValue(int value)
+  {
+    m_debouncer.setLowLevelTreshold(value);
   }
 
   AnalogDebouncer m_debouncer;
@@ -476,10 +525,8 @@ class WaterOutput : public IStateListener
 class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOutListener, IAlarmListener
 {
   constexpr static int NO_WATER = 0;
-  constexpr static int WATER_OFF = 1;
 
   constexpr static int NO_WATER_TIMEOUT = 10000;
-  constexpr static int DEFAULT_WATER_OFF_TIMEOUT = 10000;
 
   public:
   PompDriver(): m_waterInput(*this),
@@ -501,64 +548,69 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
   void onValueChanged(int value, int port) override
   {
     switch(port){
-    case TIMEOUT_POTENTIOMETER:
-        setTimeoutValue(value);
+    case LOW_PRESSURE_POTENTIOMETER:
+        setLowPressureValue(value);
         break;
-    case PRESSURE_POTENTIOMETER:
-        setMaxPressureValue(value);
+    case HIGH_PRESSURE_POTENTIOMETER:
+        setHighPressureValue(value);
         break;
     }
   }
 
-  void setTimeoutValue(int value)
+  void setLowPressureValue(int value)
   {
-    m_waterOffTimeout = value * 10;
+      Serial.print(__FUNCTION__);
+      Serial.print(" value:");
+      Serial.println(value);
 
-    Serial.print(__FUNCTION__);
-    Serial.print(" value:");
-    Serial.println(m_waterOffTimeout);
+      m_waterOutput.setLowPressureValue(value);
   }
 
-  void setMaxPressureValue(int value)
+  void setHighPressureValue(int value)
   {
     Serial.print(__FUNCTION__);
     Serial.print(" value:");
     Serial.println(value);
 
-    m_waterOutput.setMaxPressureValue(value);
+    m_waterOutput.setHighPressureValue(value);
   }
 
-  void onWaterOut(bool state) override
+  void onWaterOut(WaterPressureState state) override
   {
     Serial.print(__FUNCTION__);
     Serial.print(" state:");
     Serial.println(state);
 
-    if(0 == state){
-        if(m_motor.waterErrorOccured()){
-            Serial.print(__FUNCTION__);
-            Serial.println(" waterErrorOccured, cannot turn on motor");
-          return;
-        }
-      m_motor.turnOn();
-      m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER, true);
+    if(m_motor.waterErrorOccured()){
+        Serial.print(__FUNCTION__);
+        Serial.println(" waterErrorOccured, cannot turn on motor");
+        return;
+    }
+
+    if(eLowWaterPressure == state){
+        m_motor.turnOn();
+        m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER, true);
     } else {
         m_motor.turnOff();
+        m_waterAlarm.clearAlarm();
     }
   }
 
-  void onWaterIn(bool state) override
+  void onWaterIn(WaterFlowState state) override
   {
     Serial.print(__FUNCTION__);
     Serial.print(" state:");
     Serial.println(state);
 
-    if(1 == state){
-      if(1 == m_waterOutput.getState()){
-        m_waterAlarm.setAlarm(this, m_waterOffTimeout, WATER_OFF, true);
-        }
-    } else {
+    if(eWaterFlow == state){
+      if(eHighWaterPressure == m_waterOutput.getState()){
+        m_motor.turnOff();
+        m_waterAlarm.clearAlarm();
+      } else {
         m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER, true);
+      }
+    } else {
+        m_waterAlarm.clearAlarm();
     }
   }
 
@@ -569,11 +621,8 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
     Serial.println(id);
 
     switch(id){
-      case WATER_OFF:
-        m_motor.turnOff();
-      break;
       case NO_WATER:
-        if(m_waterInput.getState() == 1){
+        if(m_waterInput.getState() == eWaterStop){
             m_motor.onWaterError();
         }
       break;
@@ -585,7 +634,6 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
   Motor m_motor;
   WaterInput m_waterInput;
   WaterOutput m_waterOutput;
-  unsigned long m_waterOffTimeout = DEFAULT_WATER_OFF_TIMEOUT;
   Alarm m_waterAlarm;
 };
 
@@ -621,8 +669,8 @@ class Timer
 
 /////////////////////////////////////////////////////////////////////////// GLOBALS //////////////////////////////////////////////////////////////////////////////////////
 PompDriver g_pompDriver;
-PotentiometerDataReader g_timeoutValueReader;
-PotentiometerDataReader g_maxPressureValueReader;
+PotentiometerDataReader g_lowPressureValueReader;
+PotentiometerDataReader g_highPressureValueReader;
 Timer g_timer;
 
 
@@ -644,11 +692,11 @@ void hardwareSetup()
 
 void softwareSetup()
 {
-    g_timeoutValueReader.setListener(&g_pompDriver);
-    g_timeoutValueReader.init(TIMEOUT_POTENTIOMETER);
+    g_lowPressureValueReader.setListener(&g_pompDriver);
+    g_lowPressureValueReader.init(LOW_PRESSURE_POTENTIOMETER);
 
-    g_maxPressureValueReader.setListener(&g_pompDriver);
-    g_maxPressureValueReader.init(PRESSURE_POTENTIOMETER);
+    g_highPressureValueReader.setListener(&g_pompDriver);
+    g_highPressureValueReader.init(HIGH_PRESSURE_POTENTIOMETER);
     g_timer.init();
 }
 
@@ -698,8 +746,8 @@ void loop() {
 
   g_timer.measureBegin();
 
-  g_timeoutValueReader.update();
-  g_maxPressureValueReader.update();
+  g_lowPressureValueReader.update();
+  g_highPressureValueReader.update();
 
   delay(5);
   g_pompDriver.update(g_timer.getLapsedTime());

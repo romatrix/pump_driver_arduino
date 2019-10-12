@@ -3,6 +3,7 @@ const int LOW_PRESSURE_POTENTIOMETER   = A0;    // select the input pin for the 
 const int HIGH_PRESSURE_POTENTIOMETER = A1;
 const int ERR_LED = 2;
 const int POMP = 3;
+const int RESET = 4;
 const int PRESSURE_SENSOR = A4;
 const int WATER_IN = 5;
 const int WATER_OUT = 7;
@@ -194,9 +195,9 @@ public:
 //              Serial.println(value);
       return true;
     } else if (value < m_lowLevelTreshold){
-        Serial.print(__FUNCTION__);
-        Serial.print(" value low:");
-        Serial.println(value);
+//        Serial.print(__FUNCTION__);
+//        Serial.print(" value low:");
+//        Serial.println(value);
       return false;
     } else {
 //        Serial.print(__FUNCTION__);
@@ -469,7 +470,7 @@ public:
 class WaterOutput : public IStateListener
 {
   static constexpr int STABLE_TIME = 30;
-  static constexpr int MIN_VALUE = 80;
+  static constexpr int MIN_VALUE = 0;
 
   public:
   WaterOutput(IWaterOutListener& listener):m_debouncer(PRESSURE_SENSOR, STABLE_TIME, MIN_VALUE),
@@ -527,6 +528,7 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
   constexpr static int NO_WATER = 0;
 
   constexpr static int NO_WATER_TIMEOUT = 10000;
+  constexpr static int RESTART_AFTER_WATER_ERROR_TIMEOUT_SEC = 60 * 20;
 
   public:
   PompDriver(): m_waterInput(*this),
@@ -536,6 +538,7 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
   void update(unsigned long delta)
   {
     if(m_motor.waterErrorOccured()){
+        m_restartAfterWaterError.update(delta, m_waterInput.getState());
       return;
     }
 
@@ -610,7 +613,8 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
         m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER, true);
       }
     } else {
-        m_waterAlarm.clearAlarm();
+        //m_waterAlarm.clearAlarm();
+        m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER, true);
     }
   }
 
@@ -624,6 +628,7 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
       case NO_WATER:
         if(m_waterInput.getState() == eWaterStop){
             m_motor.onWaterError();
+            resetBoardAfter(RESTART_AFTER_WATER_ERROR_TIMEOUT_SEC);
         }
       break;
       default:
@@ -631,10 +636,28 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
     }
   }
 
+  void delaySec(int sec)
+  {
+      for(int i = 0; i < sec; ++i){
+          delay(1000);
+      }
+  }
+
+  void resetBoardAfter(int delayValue)
+  {
+    Serial.println(__FUNCTION__);
+
+    delaySec(delayValue);
+    void(* resetFunc) (void) = 0;
+    resetFunc(); //call reset
+    Serial.println("dupa");
+  }
+
   Motor m_motor;
   WaterInput m_waterInput;
   WaterOutput m_waterOutput;
   Alarm m_waterAlarm;
+  Alarm m_restartAfterWaterError;
 };
 
 
@@ -685,6 +708,11 @@ void hardwareSetup()
     //pinMode(WATER_OUT, INPUT);
     pinMode(ERR_LED, OUTPUT);
     pinMode(POMP, OUTPUT);
+
+    digitalWrite(RESET, HIGH);
+    delay(200);
+    pinMode(RESET, OUTPUT);
+
 
     digitalWrite(ERR_LED, HIGH);
     digitalWrite(POMP, LOW);

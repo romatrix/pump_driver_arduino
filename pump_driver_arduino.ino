@@ -590,12 +590,15 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
         return;
     }
 
-    if(eLowWaterPressure == state){
+    switch(state){
+    case eLowWaterPressure:
         m_motor.turnOn();
         m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER, true);
-    } else {
+    break;
+    case eHighWaterPressure:
         m_motor.turnOff();
         m_waterAlarm.clearAlarm();
+    break;
     }
   }
 
@@ -605,18 +608,27 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
     Serial.print(" state:");
     Serial.println(state);
 
-    if(eWaterFlow == state){
-      if(eHighWaterPressure == m_waterOutput.getState()){
-        m_motor.turnOff();
-        m_waterAlarm.clearAlarm();
-      } else {
-        m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER, true);
-      }
-    } else {
-        //m_waterAlarm.clearAlarm();
-        m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER, true);
+    switch(state){
+    case eWaterFlow:
+        switch(m_waterOutput.getState()){
+        case eHighWaterPressure:
+            m_motor.turnOff();
+            m_waterAlarm.clearAlarm();
+        break;
+        case eLowWaterPressure:
+            m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER, true);
+        break;
+        }
+    break;
+    case eWaterStop:
+        switch(m_waterOutput.getState()){
+        case eLowWaterPressure:
+            m_waterAlarm.setAlarm(this, NO_WATER_TIMEOUT, NO_WATER, true);
+        break;
+        }
+    break;
     }
-  }
+}
 
   void onTimeout(int id) override
   {
@@ -626,7 +638,7 @@ class PompDriver: public IPotentiometerDataListener, IWaterInListener, IWaterOut
 
     switch(id){
       case NO_WATER:
-        if(m_waterInput.getState() == eWaterStop){
+        if(eWaterStop == m_waterInput.getState() && eLowWaterPressure == m_waterOutput.getState()){
             m_motor.onWaterError();
             resetBoardAfter(RESTART_AFTER_WATER_ERROR_TIMEOUT_SEC);
         }
@@ -731,39 +743,52 @@ void softwareSetup()
 void setup()
 {
     hardwareSetup();
-    softwareSetup();
+    //softwareSetup();
 }
 
 
 void readCmd()
 {
     String inString = "";
+    int valPos = -1;
+    String cmd = "";
+    //Serial.println("dupa");
+    //return;
     while(Serial.available() > 0) // Don't read unless
      {
         int data = Serial.read();
-//        Serial.println(data);
+        //Serial.println(data);
 
         if(data != '\n'){
             inString += (char)data;
+            if (data == '='){
+              valPos = inString.length();
+            }
+            continue;
         }
 
             if(inString == SIM_ON){
                 g_simulatedSensor = true;
                 inString = "";
-                Serial.println(SIM_ON);
+                //delay(10);
+                //Serial.println(SIM_ON);
+                cmd = inString;
                 continue;
             } else if(inString == SIM_OFF){
                 g_simulatedSensor = false;
                 Serial.println(SIM_OFF);
                 inString = "";
                 continue;
+            } else {
+              delay(10);
+              Serial.println("UNKNOWN CMD: " + inString);
             }
 
-        if (data == '\n' && inString.length() > 0 && g_simulatedSensor) {
-            g_simulatedSensorValue = inString.toInt();
-            Serial.print("SIM ON, VALUE=");
-            Serial.println(inString.toInt());
-        }
+//        if (data == '\n' && inString.length() > 0 && g_simulatedSensor) {
+//            g_simulatedSensorValue = inString.toInt();
+//            Serial.print("SIM ON, VALUE=");
+//            Serial.println(inString.toInt());
+//        }
      }
 }
 
@@ -772,13 +797,13 @@ void readCmd()
 void loop() {
   readCmd();
 
-  g_timer.measureBegin();
+//  g_timer.measureBegin();
 
-  g_lowPressureValueReader.update();
-  g_highPressureValueReader.update();
+//  g_lowPressureValueReader.update();
+//  g_highPressureValueReader.update();
 
   delay(5);
-  g_pompDriver.update(g_timer.getLapsedTime());
+//  g_pompDriver.update(g_timer.getLapsedTime());
 
-  g_timer.measureEnd();
+//  g_timer.measureEnd();
 }
